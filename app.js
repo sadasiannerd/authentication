@@ -1,71 +1,49 @@
+// add environment as soon as we start coding the app so that it won't be affected by version control
 require('dotenv').config()
 const express = require('express')
+const session = require('express-session')
 const bodyParser = require('body-parser')
 const ejs = require('ejs')
-const mongoose = require('mongoose');
-const encrypt = require('mongoose-encryption')
+
+const passport = require('passport')
+require('./models/passportConfiguration')(passport)
+
+// connect to dbs
+const db = require('./db')
+db.connect()
+
+const Users = require('./models/Users')
+
+//app configuration
 const app = express()
-
-main().catch(err => console.log(err));
-
-async function main() {
-  await mongoose.connect(process.env.URI);
-}
-
-const userSchema = new mongoose.Schema({
-    email: String,
-    password: String,
-})
-
-userSchema.plugin(encrypt, {secret: process.env.SECRET, encryptedFields: ['password']})
-
-
-const Users = mongoose.model('user', userSchema)
-
 
 app.use(express.static('public'))
 app.set('view engine', 'ejs')
 app.use(bodyParser.urlencoded({extended: true}))
 
+//set up passport configuration
+passport.use(Users.createStrategy())
 
-app.get('/', async (req, res)=>
-{
-    res.render('home')
-})
+// configure the app using passport (express-session -> initialize -> passport session)
+const crypto = require('crypto')
+const sessionSecret = crypto.randomBytes(64).toString('hex');
 
-app.route('/login').get(async(req, res) =>
-{
-    res.render('login')
-})
-.post(async (req, res) => {
-    let find_user = await Users.find({email: req.body.username})
-    if(find_user.length === 0 || find_user[0].password != req.body.password){
-        res.redirect('/login')
-    }
-    else{
-        res.render('secrets')
-    }
-})
+app.use(session({
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: true,
+  cookie: { maxAge: 3600000 } // session expires after 1 hour (in milliseconds)
+}))
+app.use(passport.authenticate('session'));
+app.use(passport.initialize())
+app.use(passport.session())
 
-app.route('/register').get(async(req, res) =>{
-    res.render('register')
-})
-.post(async(req, res) =>{
-    let user_find = await Users.find({email: req.body.username})
-    if (user_find.length === 0)
-    {
-    const newUser = new Users({email: req.body.username, password: req.body.password})
-    await newUser.save()
-    res.render('secrets')
-    }else{
-        res.redirect('/register')
-    }
-})
+// routes configuration
+authRoute = require('./routes/authRoute')
+indexRoute = require('./routes/indexRoute')
+app.use('/', authRoute)
+app.use('/', indexRoute)
 
-app.get('/logout', async (req, res) =>
-{
-    res.redirect('/')
-})
 
 app.listen(3000, () =>
 {
